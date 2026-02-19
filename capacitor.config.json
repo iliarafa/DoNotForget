@@ -1,0 +1,12 @@
+{
+  "appId": "com.thiswholeworldllc.donotforget",
+  "appName": "DO NOT FORGET",
+  "webDir": "www",
+  "backgroundColor": "#000000",
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#000000"
+    }
+  }
+}
