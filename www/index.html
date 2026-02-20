@@ -6,6 +6,7 @@
 <title>DO NOT FORGET</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -531,6 +532,128 @@ body {
   100% { transform: translateY(-35px); opacity: 0; }
 }
 
+/* ─── TITLE MENU ─── */
+.boot-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.boot-menu-item {
+  font-size: 20px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+  padding: 4px 12px;
+}
+
+.boot-menu-item.active {
+  opacity: 1;
+  animation: blink-cursor 1s step-end infinite;
+}
+
+.boot-menu-item.hidden {
+  display: none;
+}
+
+/* ─── PERFORMANCE LOG ─── */
+.log-screen {
+  position: absolute;
+  inset: 0;
+  padding: 20px;
+  padding-top: calc(20px + env(safe-area-inset-top));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  padding-left: calc(20px + env(safe-area-inset-left));
+  padding-right: calc(20px + env(safe-area-inset-right));
+  background: var(--screen-bg);
+  display: none;
+  flex-direction: column;
+  z-index: 200;
+  color: var(--phosphor);
+  text-shadow: 0 0 8px var(--phosphor-glow);
+  overflow: hidden;
+}
+
+.log-screen.active { display: flex; }
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.log-title {
+  font-size: clamp(22px, 5vw, 28px);
+  letter-spacing: 3px;
+}
+
+.log-back {
+  font-size: 18px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.log-back:hover { opacity: 1; }
+
+.log-stats {
+  font-size: 15px;
+  opacity: 0.6;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.log-table-header {
+  font-size: 14px;
+  opacity: 0.4;
+  letter-spacing: 1px;
+  border-bottom: 1px solid rgba(51, 255, 0, 0.15);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+  white-space: pre;
+}
+
+.log-entries {
+  flex: 1;
+  overflow-y: auto;
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.log-entries::-webkit-scrollbar {
+  width: 4px;
+}
+
+.log-entries::-webkit-scrollbar-track {
+  background: var(--phosphor-dim);
+}
+
+.log-entries::-webkit-scrollbar-thumb {
+  background: rgba(51, 255, 0, 0.3);
+  border-radius: 2px;
+}
+
+.log-entry {
+  white-space: pre;
+  opacity: 0.7;
+}
+
+.log-empty {
+  display: none;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  opacity: 0.4;
+}
+
+.log-empty.active { display: flex; }
+
 /* ─── RESPONSIVE ─── */
 @media (max-height: 650px) {
   .screen { padding: 10px 14px; }
@@ -561,7 +684,11 @@ body {
         <div class="boot-title-area" id="bootTitleArea">
           <div class="boot-title">DO NOT FORGET</div>
           <div class="boot-subtitle">CRT EDITION v1.0</div>
-          <div class="boot-start" id="bootStart">[ PRESS ANY KEY ]</div>
+          <div class="boot-menu" id="bootMenu">
+            <div class="boot-menu-item hidden" id="menuContinue" data-action="continue">[ CONTINUE ]</div>
+            <div class="boot-menu-item" id="menuNewGame" data-action="new">[ NEW GAME ]</div>
+            <div class="boot-menu-item" id="menuLog" data-action="log">[ PERFORMANCE LOG ]</div>
+          </div>
         </div>
       </div>
 
@@ -594,6 +721,18 @@ body {
         <div class="gameover-score" id="gameoverScore">0</div>
         <div class="gameover-detail" id="gameoverDetail"></div>
         <div class="gameover-restart" id="gameoverRestart">[ PRESS ANY KEY ]</div>
+      </div>
+
+      <!-- Performance Log Screen -->
+      <div class="log-screen" id="logScreen">
+        <div class="log-header">
+          <div class="log-title">PERFORMANCE LOG</div>
+          <div class="log-back" id="logBack">[ BACK ]</div>
+        </div>
+        <div class="log-stats" id="logStats"></div>
+        <div class="log-table-header" id="logTableHeader">DATE          SCORE  TRIALS  PERFECT</div>
+        <div class="log-entries" id="logEntries"></div>
+        <div class="log-empty" id="logEmpty">NO DATA RECORDED YET.</div>
       </div>
 
       <!-- Effect Layers -->
@@ -659,7 +798,7 @@ const state = {
   trial: 1,
   maxTrials: 12,
   score: 0,
-  phase: 'off',       // off, boot, title, memorize, input, feedback, gameover
+  phase: 'off',       // off, boot, title, memorize, input, feedback, gameover, log
   pattern: [],
   selected: [],
   gridSize: 5,
@@ -667,6 +806,8 @@ const state = {
   canClick: false,
   perfectCount: 0,
   timers: [],
+  menuIndex: 0,
+  menuItems: [],
 };
 
 function patternSize(trial) {
@@ -688,7 +829,10 @@ const els = {
   bootScreen:     $('bootScreen'),
   bootText:       $('bootText'),
   bootTitleArea:  $('bootTitleArea'),
-  bootStart:      $('bootStart'),
+  bootMenu:       $('bootMenu'),
+  menuContinue:   $('menuContinue'),
+  menuNewGame:    $('menuNewGame'),
+  menuLog:        $('menuLog'),
   gameScreen:     $('gameScreen'),
   grid:           $('grid'),
   trialDisplay:   $('trialDisplay'),
@@ -702,6 +846,12 @@ const els = {
   gameoverScore:  $('gameoverScore'),
   gameoverDetail: $('gameoverDetail'),
   gameoverRestart:$('gameoverRestart'),
+  logScreen:      $('logScreen'),
+  logStats:       $('logStats'),
+  logTableHeader: $('logTableHeader'),
+  logEntries:     $('logEntries'),
+  logEmpty:       $('logEmpty'),
+  logBack:        $('logBack'),
 };
 
 // ─────────────────────────────────────────
@@ -719,6 +869,56 @@ function clearTimers() {
 
 function getCells() {
   return Array.from(els.grid.querySelectorAll('.cell'));
+}
+
+// ─────────────────────────────────────────
+// PERSISTENCE (localStorage)
+// ─────────────────────────────────────────
+function loadGameLog() {
+  try {
+    return JSON.parse(localStorage.getItem('dnf_game_log')) || [];
+  } catch { return []; }
+}
+
+function saveGameLog(entry) {
+  try {
+    const log = loadGameLog();
+    log.unshift(entry);
+    if (log.length > 100) log.length = 100;
+    localStorage.setItem('dnf_game_log', JSON.stringify(log));
+  } catch {}
+}
+
+function loadSavedGame() {
+  try {
+    return JSON.parse(localStorage.getItem('dnf_saved_game'));
+  } catch { return null; }
+}
+
+function saveGameProgress() {
+  try {
+    localStorage.setItem('dnf_saved_game', JSON.stringify({
+      trial: state.trial,
+      score: state.score,
+      perfectCount: state.perfectCount,
+      savedAt: new Date().toISOString()
+    }));
+  } catch {}
+}
+
+function clearSavedGame() {
+  try { localStorage.removeItem('dnf_saved_game'); } catch {}
+}
+
+function recordGameResult() {
+  saveGameLog({
+    id: Date.now(),
+    date: new Date().toISOString(),
+    score: state.score,
+    trialsCompleted: state.maxTrials,
+    maxTrials: state.maxTrials,
+    perfectCount: state.perfectCount
+  });
 }
 
 // ─────────────────────────────────────────
@@ -902,6 +1102,7 @@ async function evaluate() {
     showGameOver();
   } else {
     state.trial++;
+    saveGameProgress();
     startTrial();
   }
 }
@@ -924,6 +1125,8 @@ function showScorePop(pts) {
 // ─────────────────────────────────────────
 function showGameOver() {
   state.phase = 'gameover';
+  recordGameResult();
+  clearSavedGame();
   els.gameoverScreen.classList.add('active');
   els.gameoverScore.textContent = state.score;
 
@@ -936,11 +1139,11 @@ function showGameOver() {
 
   els.gameoverDetail.textContent = `${state.perfectCount}/${state.maxTrials} PERFECT TRIALS`;
 
-  // Restart listener
+  // Return to title listener
   const handler = () => {
     document.removeEventListener('keydown', handler);
     els.gameoverRestart.removeEventListener('click', handler);
-    restartGame();
+    returnToTitle();
   };
   setTimeout(() => {
     document.addEventListener('keydown', handler);
@@ -948,33 +1151,210 @@ function showGameOver() {
   }, 600);
 }
 
-function restartGame() {
+// ─────────────────────────────────────────
+// TITLE MENU
+// ─────────────────────────────────────────
+function showTitleMenu() {
+  state.phase = 'title';
+
+  const saved = loadSavedGame();
+  const items = [];
+
+  if (saved) {
+    els.menuContinue.textContent = `[ CONTINUE - TRIAL ${saved.trial}/${state.maxTrials} ]`;
+    els.menuContinue.classList.remove('hidden');
+    items.push(els.menuContinue);
+  } else {
+    els.menuContinue.classList.add('hidden');
+  }
+
+  items.push(els.menuNewGame);
+  items.push(els.menuLog);
+
+  state.menuItems = items;
+  state.menuIndex = 0;
+  updateMenuSelection();
+}
+
+function updateMenuSelection() {
+  state.menuItems.forEach((item, i) => {
+    item.classList.toggle('active', i === state.menuIndex);
+  });
+}
+
+function handleMenuInput(action) {
+  if (state.phase !== 'title') return;
   ensureAudio();
-  sfx.pip();
-  els.gameoverScreen.classList.remove('active');
+
+  if (action === 'up') {
+    state.menuIndex = (state.menuIndex - 1 + state.menuItems.length) % state.menuItems.length;
+    sfx.pip();
+    updateMenuSelection();
+  } else if (action === 'down') {
+    state.menuIndex = (state.menuIndex + 1) % state.menuItems.length;
+    sfx.pip();
+    updateMenuSelection();
+  } else if (action === 'select') {
+    const item = state.menuItems[state.menuIndex];
+    const act = item.dataset.action;
+    sfx.pip();
+    if (act === 'continue') continueGame();
+    else if (act === 'new') startNewGame();
+    else if (act === 'log') openLogScreen();
+  }
+}
+
+// ─────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────
+function startNewGame() {
+  clearSavedGame();
   state.trial = 1;
   state.score = 0;
   state.perfectCount = 0;
   state.selected = [];
   state.pattern = [];
   els.scoreDisplay.textContent = 'SCORE 0';
+  els.bootScreen.classList.remove('active');
+  els.gameScreen.classList.add('active');
   startTrial();
+}
+
+function continueGame() {
+  const saved = loadSavedGame();
+  if (!saved) { startNewGame(); return; }
+
+  state.trial = saved.trial;
+  state.score = saved.score;
+  state.perfectCount = saved.perfectCount;
+  state.selected = [];
+  state.pattern = [];
+  clearSavedGame();
+
+  els.scoreDisplay.textContent = `SCORE ${state.score}`;
+  els.bootScreen.classList.remove('active');
+  els.gameScreen.classList.add('active');
+  startTrial();
+}
+
+function returnToTitle() {
+  ensureAudio();
+  sfx.pip();
+
+  clearTimers();
+  state.paused = false;
+  els.pauseOverlay.classList.remove('active');
+  els.pauseBtn.textContent = '| |';
+
+  els.gameoverScreen.classList.remove('active');
+  els.gameScreen.classList.remove('active');
+  els.bootScreen.classList.add('active');
+  els.bootText.style.display = 'none';
+  els.bootTitleArea.classList.add('active');
+
+  showTitleMenu();
+}
+
+function openLogScreen() {
+  showLogScreen();
+}
+
+// ─────────────────────────────────────────
+// PERFORMANCE LOG
+// ─────────────────────────────────────────
+function showLogScreen() {
+  state.phase = 'log';
+
+  const log = loadGameLog();
+
+  if (log.length === 0) {
+    els.logStats.textContent = '';
+    els.logEntries.innerHTML = '';
+    els.logEntries.style.display = 'none';
+    els.logTableHeader.style.display = 'none';
+    els.logEmpty.classList.add('active');
+  } else {
+    els.logEmpty.classList.remove('active');
+    els.logEntries.style.display = '';
+    els.logTableHeader.style.display = '';
+
+    // Stats
+    const totalGames = log.length;
+    const bestScore = Math.max(...log.map(e => e.score));
+    const avgScore = Math.round(log.reduce((s, e) => s + e.score, 0) / totalGames);
+    els.logStats.textContent = `GAMES: ${totalGames}  |  BEST: ${bestScore}  |  AVG: ${avgScore}`;
+
+    // Entries
+    els.logEntries.innerHTML = log.map(e => {
+      const d = new Date(e.date);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const date = `${mm}/${dd} ${hh}:${min}`;
+      const score = String(e.score).padStart(5);
+      const trials = `${e.trialsCompleted}/${e.maxTrials}`.padStart(6);
+      const perfect = String(e.perfectCount).padStart(7);
+      return `<div class="log-entry">${date}  ${score}  ${trials}  ${perfect}</div>`;
+    }).join('');
+  }
+
+  els.logScreen.classList.add('active');
+}
+
+function hideLogScreen() {
+  els.logScreen.classList.remove('active');
+  showTitleMenu();
 }
 
 // ─────────────────────────────────────────
 // PAUSE
 // ─────────────────────────────────────────
 function togglePause() {
-  if (state.phase === 'off' || state.phase === 'boot' || state.phase === 'title' || state.phase === 'gameover') return;
+  if (state.phase === 'off' || state.phase === 'boot' || state.phase === 'title' || state.phase === 'gameover' || state.phase === 'log') return;
   state.paused = !state.paused;
   els.pauseOverlay.classList.toggle('active', state.paused);
   els.pauseBtn.textContent = state.paused ? ' > ' : '| |';
 }
 
 els.pauseBtn.addEventListener('click', togglePause);
+els.pauseOverlay.addEventListener('click', togglePause);
+
+// Menu item click handlers
+[els.menuContinue, els.menuNewGame, els.menuLog].forEach(item => {
+  item.addEventListener('click', () => {
+    if (state.phase !== 'title') return;
+    const idx = state.menuItems.indexOf(item);
+    if (idx === -1) return;
+    state.menuIndex = idx;
+    updateMenuSelection();
+    handleMenuInput('select');
+  });
+});
+
+// Log back button
+els.logBack.addEventListener('click', () => {
+  if (state.phase === 'log') hideLogScreen();
+});
+
 document.addEventListener('keydown', e => {
+  // Title menu navigation
+  if (state.phase === 'title') {
+    if (e.key === 'ArrowUp') { handleMenuInput('up'); e.preventDefault(); }
+    else if (e.key === 'ArrowDown') { handleMenuInput('down'); e.preventDefault(); }
+    else if (e.key === 'Enter') { handleMenuInput('select'); e.preventDefault(); }
+    return;
+  }
+
+  // Log screen
+  if (state.phase === 'log') {
+    if (e.key === 'Escape') { hideLogScreen(); }
+    return;
+  }
+
+  // Pause
   if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
-    if (state.phase !== 'off' && state.phase !== 'boot' && state.phase !== 'title') {
+    if (state.phase !== 'off' && state.phase !== 'boot' && state.phase !== 'gameover') {
       togglePause();
     }
   }
@@ -1032,57 +1412,22 @@ async function bootSequence() {
   sfx.bootOk();
   await sleep(400);
 
-  // Show title
+  // Show title menu
   els.bootText.style.display = 'none';
   els.bootTitleArea.classList.add('active');
 
-  state.phase = 'title';
-
-  // Wait for any key / click
-  return new Promise(resolve => {
-    const handler = () => {
-      document.removeEventListener('keydown', handler);
-      document.removeEventListener('click', clickHandler);
-      resolve();
-    };
-    const clickHandler = (e) => {
-      // Ignore clicks on boot start only after a moment
-      document.removeEventListener('keydown', handler);
-      document.removeEventListener('click', clickHandler);
-      resolve();
-    };
-    document.addEventListener('keydown', handler);
-    document.addEventListener('click', clickHandler);
-  });
+  showTitleMenu();
 }
 
 // ─────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────
-async function init() {
+function init() {
   buildGrid();
-
-  await bootSequence();
-
-  ensureAudio();
-  sfx.pip();
-
-  // Transition to game
-  els.bootScreen.classList.remove('active');
-  els.gameScreen.classList.add('active');
-
-  startTrial();
+  bootSequence();
 }
 
 init();
-</script>
-<script>
-// Hide status bar on iOS for full immersion
-if (window.Capacitor) {
-  import('@capacitor/status-bar').then(({ StatusBar }) => {
-    StatusBar.hide();
-  }).catch(() => {});
-}
 </script>
 </body>
 </html>
