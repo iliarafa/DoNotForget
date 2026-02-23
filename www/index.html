@@ -333,6 +333,7 @@ body {
   gap: 5px;
   width: min(100%, 380px);
   aspect-ratio: 1;
+  transition: none;
 }
 
 /* Cells */
@@ -509,6 +510,68 @@ body {
 }
 
 .gameover-restart {
+  font-size: 20px;
+  margin-top: 20px;
+  animation: blink-cursor 1s step-end infinite;
+  cursor: pointer;
+}
+
+/* ─── LEVEL COMPLETE ─── */
+.levelcomplete-screen {
+  position: absolute;
+  inset: 0;
+  padding: 20px;
+  background: var(--screen-bg);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  color: var(--phosphor);
+  text-shadow: 0 0 12px var(--phosphor-glow);
+  gap: 6px;
+}
+.levelcomplete-screen.active { display: flex; }
+
+.levelcomplete-label {
+  font-size: clamp(36px, 9vw, 52px);
+  letter-spacing: 4px;
+  text-shadow: 0 0 20px var(--phosphor-glow), 0 0 50px var(--phosphor-glow-soft);
+}
+
+.levelcomplete-msg {
+  font-size: clamp(28px, 7vw, 40px);
+  letter-spacing: 6px;
+  opacity: 0.7;
+}
+
+.levelcomplete-score-label {
+  font-size: 20px;
+  letter-spacing: 3px;
+  opacity: 0.5;
+  margin-top: 12px;
+}
+
+.levelcomplete-score {
+  font-size: clamp(44px, 11vw, 64px);
+  text-shadow: 0 0 30px var(--phosphor-glow), 0 0 60px var(--phosphor-glow-soft);
+  line-height: 1;
+}
+
+.levelcomplete-detail {
+  font-size: 16px;
+  opacity: 0.4;
+  margin-bottom: 4px;
+}
+
+.levelcomplete-next {
+  font-size: 18px;
+  letter-spacing: 2px;
+  opacity: 0.6;
+  margin-top: 8px;
+}
+
+.levelcomplete-continue {
   font-size: 20px;
   margin-top: 20px;
   animation: blink-cursor 1s step-end infinite;
@@ -697,7 +760,7 @@ body {
         <div class="top-bar">
           <button class="pause-btn" id="pauseBtn">| |</button>
           <div class="top-info">
-            <span id="trialDisplay">TRIAL 1/12</span>
+            <span id="trialDisplay">L1 TRIAL 1/12</span>
             <span id="scoreDisplay">SCORE 0</span>
           </div>
         </div>
@@ -712,6 +775,17 @@ body {
 
       <!-- Pause Overlay -->
       <div class="pause-overlay" id="pauseOverlay">PAUSED</div>
+
+      <!-- Level Complete Screen -->
+      <div class="levelcomplete-screen" id="levelCompleteScreen">
+        <div class="levelcomplete-label">LEVEL <span id="levelCompleteNum">1</span></div>
+        <div class="levelcomplete-msg">COMPLETE</div>
+        <div class="levelcomplete-score-label">SCORE</div>
+        <div class="levelcomplete-score" id="levelCompleteScore">0</div>
+        <div class="levelcomplete-detail" id="levelCompleteDetail"></div>
+        <div class="levelcomplete-next" id="levelCompleteNext"></div>
+        <div class="levelcomplete-continue" id="levelCompleteContinue">[ PRESS TO CONTINUE ]</div>
+      </div>
 
       <!-- Game Over Screen -->
       <div class="gameover-screen" id="gameoverScreen">
@@ -730,7 +804,7 @@ body {
           <div class="log-back" id="logBack">[ BACK ]</div>
         </div>
         <div class="log-stats" id="logStats"></div>
-        <div class="log-table-header" id="logTableHeader">DATE          SCORE  TRIALS  PERFECT</div>
+        <div class="log-table-header" id="logTableHeader">DATE        LVL  SCORE  PERFECT</div>
         <div class="log-entries" id="logEntries"></div>
         <div class="log-empty" id="logEmpty">NO DATA RECORDED YET.</div>
       </div>
@@ -795,27 +869,37 @@ const sfx = {
 // GAME STATE
 // ─────────────────────────────────────────
 const state = {
+  level: 1,
   trial: 1,
   maxTrials: 12,
   score: 0,
-  phase: 'off',       // off, boot, title, memorize, input, feedback, gameover, log
+  phase: 'off',       // off, boot, title, memorize, input, feedback, gameover, levelcomplete, log
   pattern: [],
   selected: [],
   gridSize: 5,
   paused: false,
   canClick: false,
   perfectCount: 0,
+  levelPerfectCount: 0,
   timers: [],
   menuIndex: 0,
   menuItems: [],
 };
 
-function patternSize(trial) {
-  return 3 + Math.floor((trial - 1) / 2);
+function getGridSize(level) {
+  return Math.min(7, 4 + level);
 }
 
-function memorizeTime(trial) {
-  return Math.max(1100, 2600 - (trial - 1) * 130);
+function patternSize(trial, level) {
+  const base = 3 + (level - 1);
+  const size = base + Math.floor((trial - 1) / 2);
+  const totalCells = getGridSize(level) * getGridSize(level);
+  return Math.min(size, Math.floor(totalCells * 0.45));
+}
+
+function memorizeTime(trial, level) {
+  const base = Math.max(1000, 2600 - (level - 1) * 300);
+  return Math.max(700, base - (trial - 1) * 130);
 }
 
 // ─────────────────────────────────────────
@@ -841,6 +925,12 @@ const els = {
   statusSub:      $('statusSub'),
   pauseBtn:       $('pauseBtn'),
   pauseOverlay:   $('pauseOverlay'),
+  levelCompleteScreen: $('levelCompleteScreen'),
+  levelCompleteNum:    $('levelCompleteNum'),
+  levelCompleteScore:  $('levelCompleteScore'),
+  levelCompleteDetail: $('levelCompleteDetail'),
+  levelCompleteNext:   $('levelCompleteNext'),
+  levelCompleteContinue: $('levelCompleteContinue'),
   gameoverScreen: $('gameoverScreen'),
   gameoverMsg:    $('gameoverMsg'),
   gameoverScore:  $('gameoverScore'),
@@ -898,9 +988,11 @@ function loadSavedGame() {
 function saveGameProgress() {
   try {
     localStorage.setItem('dnf_saved_game', JSON.stringify({
+      level: state.level,
       trial: state.trial,
       score: state.score,
       perfectCount: state.perfectCount,
+      levelPerfectCount: state.levelPerfectCount,
       savedAt: new Date().toISOString()
     }));
   } catch {}
@@ -915,6 +1007,7 @@ function recordGameResult() {
     id: Date.now(),
     date: new Date().toISOString(),
     score: state.score,
+    level: state.level,
     trialsCompleted: state.maxTrials,
     maxTrials: state.maxTrials,
     perfectCount: state.perfectCount
@@ -925,7 +1018,9 @@ function recordGameResult() {
 // GRID
 // ─────────────────────────────────────────
 function buildGrid() {
+  state.gridSize = getGridSize(state.level);
   els.grid.innerHTML = '';
+  els.grid.style.gridTemplateColumns = `repeat(${state.gridSize}, 1fr)`;
   const total = state.gridSize * state.gridSize;
   for (let i = 0; i < total; i++) {
     const cell = document.createElement('div');
@@ -979,10 +1074,10 @@ async function startTrial() {
 
   resetCells();
 
-  els.trialDisplay.textContent = `TRIAL ${state.trial}/${state.maxTrials}`;
+  els.trialDisplay.textContent = `L${state.level} TRIAL ${state.trial}/${state.maxTrials}`;
   els.statusSub.textContent = '';
 
-  const pSize = patternSize(state.trial);
+  const pSize = patternSize(state.trial, state.level);
   state.pattern = generatePattern(pSize);
 
   // Brief pause, then show
@@ -995,7 +1090,7 @@ async function startTrial() {
   showPattern();
 
   const revealDur = state.pattern.length * 70;
-  const memTime = memorizeTime(state.trial);
+  const memTime = memorizeTime(state.trial, state.level);
 
   await sleep(revealDur + memTime);
   if (state.phase !== 'memorize') return;
@@ -1010,7 +1105,7 @@ async function startTrial() {
   state.canClick = true;
   els.statusText.textContent = 'YOUR TURN';
   els.statusText.classList.add('blink');
-  els.statusSub.textContent = `0 / ${pSize}`;
+  els.statusSub.textContent = `SELECT ${pSize} CELLS`;
 }
 
 function onCellClick(index) {
@@ -1029,7 +1124,7 @@ function onCellClick(index) {
     sfx.click();
   }
 
-  const pSize = patternSize(state.trial);
+  const pSize = patternSize(state.trial, state.level);
   els.statusSub.textContent = `${state.selected.length} / ${pSize}`;
 
   if (state.selected.length >= pSize) {
@@ -1043,7 +1138,7 @@ async function evaluate() {
   els.statusText.classList.remove('blink');
 
   const cells = getCells();
-  const pSize = patternSize(state.trial);
+  const pSize = patternSize(state.trial, state.level);
 
   let correct = 0;
   let wrong = 0;
@@ -1071,7 +1166,10 @@ async function evaluate() {
   const perfect = correct === pSize && wrong === 0;
   const points = Math.max(0, correct * 10 - wrong * 5) + (perfect ? 50 : 0);
 
-  if (perfect) state.perfectCount++;
+  if (perfect) {
+    state.perfectCount++;
+    state.levelPerfectCount++;
+  }
 
   state.score += points;
   els.scoreDisplay.textContent = `SCORE ${state.score}`;
@@ -1099,7 +1197,7 @@ async function evaluate() {
   if (state.phase !== 'feedback') return;
 
   if (state.trial >= state.maxTrials) {
-    showGameOver();
+    showLevelComplete();
   } else {
     state.trial++;
     saveGameProgress();
@@ -1121,6 +1219,58 @@ function showScorePop(pts) {
 }
 
 // ─────────────────────────────────────────
+// LEVEL COMPLETE
+// ─────────────────────────────────────────
+function showLevelComplete() {
+  state.phase = 'levelcomplete';
+  recordGameResult();
+  saveGameProgress();
+
+  els.levelCompleteNum.textContent = state.level;
+  els.levelCompleteScore.textContent = state.score;
+  els.levelCompleteDetail.textContent = `${state.levelPerfectCount}/${state.maxTrials} PERFECT TRIALS`;
+
+  const nextGridSize = getGridSize(state.level + 1);
+  const currentGridSize = getGridSize(state.level);
+  if (nextGridSize > currentGridSize) {
+    els.levelCompleteNext.textContent = `NEXT: ${nextGridSize}×${nextGridSize} GRID`;
+  } else {
+    els.levelCompleteNext.textContent = `NEXT: LEVEL ${state.level + 1}`;
+  }
+
+  els.levelCompleteScreen.classList.add('active');
+
+  sfx.perfect();
+
+  const handler = () => {
+    document.removeEventListener('keydown', handler);
+    els.levelCompleteContinue.removeEventListener('click', handler);
+    advanceLevel();
+  };
+  setTimeout(() => {
+    document.addEventListener('keydown', handler);
+    els.levelCompleteContinue.addEventListener('click', handler);
+  }, 600);
+}
+
+function advanceLevel() {
+  ensureAudio();
+  sfx.pip();
+
+  els.levelCompleteScreen.classList.remove('active');
+
+  state.level++;
+  state.trial = 1;
+  state.levelPerfectCount = 0;
+
+  buildGrid();
+  saveGameProgress();
+
+  els.trialDisplay.textContent = `L${state.level} TRIAL 1/${state.maxTrials}`;
+  startTrial();
+}
+
+// ─────────────────────────────────────────
 // GAME OVER
 // ─────────────────────────────────────────
 function showGameOver() {
@@ -1137,7 +1287,7 @@ function showGameOver() {
   else if (pct >= 0.3) els.gameoverMsg.textContent = 'WELL DONE';
   else                 els.gameoverMsg.textContent = 'GAME OVER';
 
-  els.gameoverDetail.textContent = `${state.perfectCount}/${state.maxTrials} PERFECT TRIALS`;
+  els.gameoverDetail.textContent = `LEVEL ${state.level} — ${state.perfectCount} PERFECT TRIALS`;
 
   // Return to title listener
   const handler = () => {
@@ -1161,7 +1311,8 @@ function showTitleMenu() {
   const items = [];
 
   if (saved) {
-    els.menuContinue.textContent = `[ CONTINUE - TRIAL ${saved.trial}/${state.maxTrials} ]`;
+    const savedLevel = saved.level || 1;
+    els.menuContinue.textContent = `[ CONTINUE - L${savedLevel} TRIAL ${saved.trial}/${state.maxTrials} ]`;
     els.menuContinue.classList.remove('hidden');
     items.push(els.menuContinue);
   } else {
@@ -1209,14 +1360,17 @@ function handleMenuInput(action) {
 // ─────────────────────────────────────────
 function startNewGame() {
   clearSavedGame();
+  state.level = 1;
   state.trial = 1;
   state.score = 0;
   state.perfectCount = 0;
+  state.levelPerfectCount = 0;
   state.selected = [];
   state.pattern = [];
   els.scoreDisplay.textContent = 'SCORE 0';
   els.bootScreen.classList.remove('active');
   els.gameScreen.classList.add('active');
+  buildGrid();
   startTrial();
 }
 
@@ -1224,9 +1378,11 @@ function continueGame() {
   const saved = loadSavedGame();
   if (!saved) { startNewGame(); return; }
 
+  state.level = saved.level || 1;
   state.trial = saved.trial;
   state.score = saved.score;
   state.perfectCount = saved.perfectCount;
+  state.levelPerfectCount = saved.levelPerfectCount || 0;
   state.selected = [];
   state.pattern = [];
   clearSavedGame();
@@ -1234,6 +1390,7 @@ function continueGame() {
   els.scoreDisplay.textContent = `SCORE ${state.score}`;
   els.bootScreen.classList.remove('active');
   els.gameScreen.classList.add('active');
+  buildGrid();
   startTrial();
 }
 
@@ -1247,6 +1404,7 @@ function returnToTitle() {
   els.pauseBtn.textContent = '| |';
 
   els.gameoverScreen.classList.remove('active');
+  els.levelCompleteScreen.classList.remove('active');
   els.gameScreen.classList.remove('active');
   els.bootScreen.classList.add('active');
   els.bootText.style.display = 'none';
@@ -1292,10 +1450,10 @@ function showLogScreen() {
       const hh = String(d.getHours()).padStart(2, '0');
       const min = String(d.getMinutes()).padStart(2, '0');
       const date = `${mm}/${dd} ${hh}:${min}`;
+      const lvl = String(e.level || 1).padStart(3);
       const score = String(e.score).padStart(5);
-      const trials = `${e.trialsCompleted}/${e.maxTrials}`.padStart(6);
       const perfect = String(e.perfectCount).padStart(7);
-      return `<div class="log-entry">${date}  ${score}  ${trials}  ${perfect}</div>`;
+      return `<div class="log-entry">${date}  ${lvl}  ${score}  ${perfect}</div>`;
     }).join('');
   }
 
@@ -1311,7 +1469,7 @@ function hideLogScreen() {
 // PAUSE
 // ─────────────────────────────────────────
 function togglePause() {
-  if (state.phase === 'off' || state.phase === 'boot' || state.phase === 'title' || state.phase === 'gameover' || state.phase === 'log') return;
+  if (state.phase === 'off' || state.phase === 'boot' || state.phase === 'title' || state.phase === 'gameover' || state.phase === 'levelcomplete' || state.phase === 'log') return;
   state.paused = !state.paused;
   els.pauseOverlay.classList.toggle('active', state.paused);
   els.pauseBtn.textContent = state.paused ? ' > ' : '| |';
