@@ -836,7 +836,6 @@ const state = {
   paused: false,
   canClick: false,
   perfectCount: 0,
-  timers: [],
   menuIndex: 0,
   menuItems: [],
   gameMode: 'classic', // 'classic' | 'survival'
@@ -907,17 +906,53 @@ const els = {
 };
 
 // ─────────────────────────────────────────
+// PAUSABLE TIMER SYSTEM
+// ─────────────────────────────────────────
+const timers = {
+  _entries: [],
+
+  set(callback, ms) {
+    const entry = { callback, startTime: Date.now(), remaining: ms };
+    entry.id = setTimeout(() => {
+      this._remove(entry);
+      callback();
+    }, ms);
+    this._entries.push(entry);
+  },
+
+  _remove(entry) {
+    const idx = this._entries.indexOf(entry);
+    if (idx !== -1) this._entries.splice(idx, 1);
+  },
+
+  pause() {
+    const now = Date.now();
+    this._entries.forEach(e => {
+      clearTimeout(e.id);
+      e.remaining = Math.max(0, e.remaining - (now - e.startTime));
+    });
+  },
+
+  resume() {
+    this._entries.forEach(e => {
+      e.startTime = Date.now();
+      e.id = setTimeout(() => {
+        this._remove(e);
+        e.callback();
+      }, e.remaining);
+    });
+  },
+
+  clearAll() {
+    this._entries.forEach(e => clearTimeout(e.id));
+    this._entries = [];
+  }
+};
+
+// ─────────────────────────────────────────
 // UTILITIES
 // ─────────────────────────────────────────
-const sleep = ms => new Promise(r => {
-  const id = setTimeout(r, ms);
-  state.timers.push(id);
-});
-
-function clearTimers() {
-  state.timers.forEach(clearTimeout);
-  state.timers = [];
-}
+const sleep = ms => new Promise(r => timers.set(r, ms));
 
 function getCells() {
   return Array.from(els.grid.querySelectorAll('.cell'));
@@ -1049,11 +1084,10 @@ function generatePattern(count) {
 function showPattern() {
   const cells = getCells();
   state.pattern.forEach((idx, i) => {
-    const id = setTimeout(() => {
+    timers.set(() => {
       cells[idx].classList.add('lit');
       sfx.pip();
     }, i * 70);
-    state.timers.push(id);
   });
 }
 
@@ -1167,7 +1201,7 @@ function onCellClick(index) {
 
   if (state.selected.length >= pSize) {
     state.canClick = false;
-    setTimeout(() => evaluate(), 250);
+    timers.set(() => evaluate(), 250);
   }
 }
 
@@ -1251,9 +1285,9 @@ async function evaluate() {
     // Classic mode
     if (state.trial >= state.maxTrials) {
       // Level complete — advance
+      showGameOver();
       state.level++;
       saveClassicLevel(state.level);
-      showGameOver();
     } else {
       state.trial++;
       saveGameProgress();
@@ -1312,7 +1346,7 @@ function showGameOver() {
     else if (pct >= 0.3) els.gameoverMsg.textContent = 'WELL DONE';
     else                 els.gameoverMsg.textContent = 'GAME OVER';
 
-    els.gameoverDetail.textContent = `LEVEL ${state.level - 1} \u2014 ${state.perfectCount}/${state.maxTrials} PERFECT TRIALS`;
+    els.gameoverDetail.textContent = `LEVEL ${state.level} \u2014 ${state.perfectCount}/${state.maxTrials} PERFECT TRIALS`;
   }
 
   // Return to title listener
@@ -1434,7 +1468,6 @@ function continueGame() {
   state.lives = 0;
   state.selected = [];
   state.pattern = [];
-  clearSavedGame();
 
   buildGrid();
   els.scoreDisplay.textContent = `SCORE ${state.score}`;
@@ -1448,7 +1481,7 @@ function returnToTitle() {
   ensureAudio();
   sfx.pip();
 
-  clearTimers();
+  timers.clearAll();
   state.paused = false;
   els.pauseOverlay.classList.remove('active');
   els.pauseBtn.textContent = '| |';
@@ -1543,6 +1576,8 @@ function togglePause() {
   state.paused = !state.paused;
   els.pauseOverlay.classList.toggle('active', state.paused);
   els.pauseBtn.textContent = state.paused ? ' > ' : '| |';
+  if (state.paused) timers.pause();
+  else timers.resume();
 }
 
 els.pauseBtn.addEventListener('click', togglePause);
